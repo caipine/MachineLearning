@@ -1,0 +1,152 @@
+---
+title: "predict the exercise manner, WriteUp"
+author: "Qingsong Cai"
+date: "Wednesday, February 12, 2015"
+output: html_document
+---
+###     Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+###     Data 
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data are available here:https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv. 
+
+###     Purpose
+to predict the manner in which they did the exercise with any of the other variables. 
+
+###     get the training data, and get the shinny data. 
+```{r}
+setwd("Q:/R_learning/predmachlearn")
+training_ori <- read.csv("pml_training.csv", na.strings=c("NA","#DIV/0!",""))
+
+removeNAcols   <- function(x) { x[ , colSums( is.na(x) ) < nrow(x) ] }
+complete       <- function(x) {x[,sapply(x, function(y) !any(is.na(y)))] }
+incompl        <- function(x) {names( x[,sapply(x, function(y) any(is.na(y)))] ) }
+
+training_ori <- removeNAcols(training_ori)
+training_ori <- complete(training_ori)
+
+training_ori <- training_ori[,c(8:60)]
+#summary(training_ori)
+```
+
+###  slice original training data as training set and testing set for set up model and test the model
+```{r}
+library(caret)
+set.seed(975)
+#inTrain <- createDataPartition(y=training$classe, p=0.75, list=FALSE) # not random
+inTrain = createDataPartition(training_ori$classe, p = 3/4)[[1]]
+training <- training_ori[inTrain, ] 
+testing<- training_ori[-inTrain, ]
+```
+
+###   set up model with Random Forest
+```{r, eval=FALSE}
+require(ggplot2)
+for(i in 1:(ncol(training)-1)) {
+    jpeg(paste("plot", i, ".jpg", sep = ""))
+    print(ggplot(training, aes(x=classe, y=training[,i] ))+ geom_boxplot() + geom_jitter())
+    dev.off()
+}
+```
+
+
+```{r,echo=FALSE, eval=FALSE}
+modFit <- train(training[,-53],
+                       training$classe,
+                      tuneGrid=data.frame(mtry=3),
+                       trControl=trainControl(method="none")
+                       )
+```
+
+```{r,echo=FALSE, eval=FALSE}
+modFit <- train(classe~ .,data=training,method="rf",prox=TRUE)
+modFit
+```
+
+```{r}
+modFit <- train(classe~ .,
+                data=training,
+                tuneGrid=data.frame(mtry=3),
+                trControl=trainControl(method="none"),
+                method="rf"
+                )
+
+modFit
+head(getTree(modFit$finalModel,k=2))
+```
+
+### test the model with training set for evaluation of accuracy 
+```{r}
+confusionMatrix(predict(modFit,
+                        newdata=training[,-53]),
+                training$classe
+                )
+
+```
+Based on results, The confusion matrix of the Random Forest prediction created gives an accuracy of 100%.
+
+### test the model with testing set for evaluation of accuracy 
+```{r}
+confusionMatrix(predict(modFit,
+                        newdata=testing[,-53]),
+                testing$classe
+                )
+
+pred_t <- predict(modFit, testing)
+accuracy <- sum(pred_t == testing$classe) / length(pred_t)
+accuracy
+```
+Based on results, The confusion matrix of the Random Forest prediction created gives an accuracy of 99.33%. This is excellent.
+
+As a double check the out of sample error was calculated. This model achieved 99.327 % accuracy on the validation set (testing).
+
+
+###     Plot true and false predicted results with testing set
+```{r}
+pred <- predict(modFit,testing)
+testing$predRight <- pred==testing$classe
+table(pred,testing$classe)
+qplot(factor(classe), total_accel_belt, data = testing, colour=predRight, geom=c("jitter"))
+
+```
+
+
+###     Assess the important variables
+```{r}
+modFit <- train(classe~ .,
+                data=training,
+                tuneGrid=data.frame(mtry=3),
+                trControl=trainControl(method="none"),
+                method="rf"
+                )
+varImp_Obj <- varImp(modFit)
+varImp_Obj
+plot(varImp_Obj, main = "Importance of Top 30 Variables", top = 30)
+```
+
+
+###     Read unknown testing data, do the  same treatment as training data did, and predict it with model to generate 20 answes for 20 questions 
+```{r, eval=FALSE}
+testing_new<- read.csv("pml_testing.csv", na.strings=c("NA","#DIV/0!",""))
+testing_new <- complete(removeNAcols(testing_new))
+answers <- predict(modFit,testing_new)
+answers
+```
+
+
+### write answer for single files for submit
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+```
+
+
+
